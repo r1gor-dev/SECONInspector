@@ -169,7 +169,7 @@ const styles = StyleSheet.create({
     padding: 8,
   },
   image: {
-    width: 500,
+    width: 550,
     height: 700,
     marginVertical: 15,
     alignSelf: 'center',
