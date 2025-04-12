@@ -10,6 +10,7 @@ import { format } from 'date-fns';
 import { ru } from 'date-fns/locale';
 import * as Location from 'expo-location';
 import { Picker } from '@react-native-picker/picker';
+import * as MediaLibrary from 'expo-media-library';
 
 type Entry = {
   settlement: string;
@@ -56,14 +57,11 @@ export default function App() {
 
   const pickImage = async () => {
     const cameraPermission = await ImagePicker.requestCameraPermissionsAsync();
-    if (!cameraPermission.granted) {
-      Alert.alert('Нужно разрешение на доступ к камере!');
-      return;
-    }
+    //const mediaPermission = await MediaLibrary.requestPermissionsAsync();
+    const locationPermission = await Location.requestForegroundPermissionsAsync();
 
-    const { status } = await Location.requestForegroundPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert('Нужно разрешение на доступ к геолокации!');
+    if (!cameraPermission.granted /*|| !mediaPermission.granted*/ || locationPermission.status !== 'granted') {
+      Alert.alert('Нужны разрешения на камеру и геолокацию!');
       return;
     }
 
@@ -73,6 +71,12 @@ export default function App() {
       allowsMultipleSelection: true,
       exif: true 
     });
+
+    if (result.canceled) {
+      console.log("Съемка была отменена пользователем");
+      Alert.alert('Вы вышли из камеры.')
+      return;
+    }
 
     if (!result.canceled && result.assets?.length) {
       const timestamp = new Date();
@@ -88,11 +92,14 @@ export default function App() {
             
           const newPath = FileSystem.documentDirectory + fileName;
           await FileSystem.copyAsync({ from: asset.uri, to: newPath });
-          
-          // Добавляем геолокацию в метаданные
+
+          // const assetSaved = await MediaLibrary.createAssetAsync(newPath);
+          // await MediaLibrary.createAlbumAsync('Энергоинспектор', assetSaved, false);
+
           const locationInfo = `lat=${location.coords.latitude},lon=${location.coords.longitude}`;
           await FileSystem.writeAsStringAsync(newPath + '.txt', locationInfo);
           
+          //return assetSaved.uri;
           return newPath;
         })
       );
@@ -102,6 +109,7 @@ export default function App() {
       setPhotoUris([...photoUris, ...filteredUris]);
     }
   };
+
 
   const submitEntry = () => {
     if (!settlement || !street || !house || !apartment || !meterNumber || (!inspector1 && !inspector2) || !workType || !workResult) {
@@ -168,7 +176,7 @@ export default function App() {
         'Результат работы',
         'ФИО инспектора 1',
         'ФИО инспектора 2',
-        'Кол-во фото'
+        'Кол-во фото, подтверждающих работу'
       ],
       ...entries.map((entry, index) => [
         index + 1,
