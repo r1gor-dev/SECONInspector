@@ -93,12 +93,10 @@ export default function App() {
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
-      {/* Элементы с картинками рядом */}
       <View style={styles.header}>
         <Text style={styles.title}>Энергоинспектор</Text>
       </View>
 
-      {/* Адрес с картинкой */}
       <View style={styles.header}>
         <Text style={styles.label}>🏠 Адрес:</Text>
       </View>
