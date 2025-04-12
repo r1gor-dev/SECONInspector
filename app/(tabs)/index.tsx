@@ -1,16 +1,20 @@
-import React, { useState } from 'react';
-import { View, Text, TextInput, Button, ScrollView, Alert, Image, StyleSheet, TouchableOpacity } from 'react-native';
+import React, { useState, useEffect, useCallback  } from 'react';
+import { View, Modal, Text, TextInput, Button, ScrollView, Alert, Image, StyleSheet, TouchableOpacity } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import { useTheme } from '@react-navigation/native';
-import { Ionicons } from '@expo/vector-icons';
 import * as XLSX from 'xlsx';
 import { format } from 'date-fns';
 import { ru } from 'date-fns/locale';
 import * as Location from 'expo-location';
-import { Picker } from '@react-native-picker/picker';
-import * as MediaLibrary from 'expo-media-library';
+import { Menu, Divider, Provider as PaperProvider, Button as PaperButton } from 'react-native-paper';  
+import SQLite from 'react-native-sqlite-storage';
+import { createDatabaseOperations } from '../../database/db';
+import { useDatabase } from '../../database/dbcontext';
+import { useFocusEffect } from '@react-navigation/native';
+
+
 
 type Entry = {
   settlement: string;
@@ -31,6 +35,7 @@ type Entry = {
 
 export default function App() {
   const { colors } = useTheme();
+  const { dbOps, initialized } = useDatabase();
   const [settlement, setSettlement] = useState('');
   const [street, setStreet] = useState('');
   const [house, setHouse] = useState('');
@@ -38,9 +43,15 @@ export default function App() {
   const [room, setRoom] = useState('');
   const [meterNumber, setMeterNumber] = useState('');
   const [workDate, setWorkDate] = useState(format(new Date(), 'dd.MM.yyyy'));
-  const [workTime, setWorkTime] = useState('');
+  const [workTime, setWorkTime] = useState(() => {
+    const now = new Date();
+    return format(now, 'HH:mm');
+  });
   const [workType, setWorkType] = useState('');
   const [workResult, setWorkResult] = useState('');
+  const [menuVisible, setMenuVisible] = useState(false);
+  const [inspectorsList, setInspectorsList] = useState<{id: number, name: string}[]>([]);
+  const [inspectors, setInspectors] = useState<{id: number, name: string}[]>([]);
   const [inspector1, setInspector1] = useState('');
   const [inspector2, setInspector2] = useState('');
   const [photoUris, setPhotoUris] = useState<string[]>([]);
@@ -53,14 +64,27 @@ export default function App() {
     'ограничение': ['не нарушено', 'нарушено'],
   };
 
+  useFocusEffect(
+    useCallback(() => {
+      const loadInspectors = async () => {
+        if (initialized && dbOps) {
+          const data = await dbOps.getInspectors();
+          setInspectors(data);
+          setInspectorsList(data);
+        }
+      };
+      loadInspectors();
+    }, [initialized, dbOps])
+  );
 
+  const [visibleWorkTypeMenu, setVisibleWorkTypeMenu] = useState(false);
+  const [visibleWorkResultMenu, setVisibleWorkResultMenu] = useState(false);
 
   const pickImage = async () => {
     const cameraPermission = await ImagePicker.requestCameraPermissionsAsync();
-    //const mediaPermission = await MediaLibrary.requestPermissionsAsync();
     const locationPermission = await Location.requestForegroundPermissionsAsync();
 
-    if (!cameraPermission.granted /*|| !mediaPermission.granted*/ || locationPermission.status !== 'granted') {
+    if (!cameraPermission.granted || locationPermission.status !== 'granted') {
       Alert.alert('Нужны разрешения на камеру и геолокацию!');
       return;
     }
@@ -93,23 +117,17 @@ export default function App() {
           const newPath = FileSystem.documentDirectory + fileName;
           await FileSystem.copyAsync({ from: asset.uri, to: newPath });
 
-          // const assetSaved = await MediaLibrary.createAssetAsync(newPath);
-          // await MediaLibrary.createAlbumAsync('Энергоинспектор', assetSaved, false);
-
           const locationInfo = `lat=${location.coords.latitude},lon=${location.coords.longitude}`;
           await FileSystem.writeAsStringAsync(newPath + '.txt', locationInfo);
-          
-          //return assetSaved.uri;
+
           return newPath;
         })
       );
       
-      // Фильтруем пустые URI (если были отменены из-за темноты)
       const filteredUris = newPhotoUris.filter(uri => uri !== '');
       setPhotoUris([...photoUris, ...filteredUris]);
     }
   };
-
 
   const submitEntry = () => {
     if (!settlement || !street || !house || !apartment || !meterNumber || (!inspector1 && !inspector2) || !workType || !workResult) {
@@ -232,6 +250,7 @@ export default function App() {
       marginTop: 10,
       fontWeight: '600',
       color: colors.text,
+      textAlign: 'left',
     },
     input: {
       borderBottomWidth: 1,
@@ -252,6 +271,15 @@ export default function App() {
       alignSelf: 'center',
       borderRadius: 8,
     },
+    menuButton: {
+      borderRadius: 8,
+      paddingVertical: 10,
+      paddingHorizontal: 15,
+      marginBottom: 10,
+    },
+    menuItemText: {
+      textAlign: 'left', 
+    },
     header: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -270,6 +298,9 @@ export default function App() {
       backgroundColor: colors.primary,
       alignItems: 'center',
     },
+    menuButtonText: {
+      textAlign: 'left', 
+    },
     buttonText: {
       color: colors.card,
       fontWeight: 'bold',
@@ -277,6 +308,7 @@ export default function App() {
   });
 
   return (
+    <PaperProvider>
     <View style={{ flex: 1, backgroundColor: colors.background }}>
       <ScrollView contentContainerStyle={styles.container}>
         <View style={styles.header}>
@@ -358,82 +390,144 @@ export default function App() {
           placeholderTextColor={colors.text}
         />
 
-        <Text style={styles.label}>⚙️ Вид работы:</Text>
-        <Picker
-          selectedValue={workType}
-          onValueChange={(value) => {
-            setWorkType(value);
-            setWorkResult(''); // Сброс при смене типа работы
-          }}
-          style={{ color: colors.text, backgroundColor: colors.card }}
-        >
-          <Picker.Item label="Выберите вид работы" value="" />
-          {workTypes.map((type) => (
-            <Picker.Item key={type} label={type} value={type} />
-          ))}
-        </Picker>
+        
+        <Text style={[styles.label, { color: colors.text }]}>⚙️ Вид работы:</Text>
+          <Menu
+            visible={visibleWorkTypeMenu}
+            onDismiss={() => setVisibleWorkTypeMenu(false)}
+            anchor={
+              <PaperButton
+                mode="text"
+                contentStyle={{
+                  justifyContent: 'flex-start',
+                  paddingLeft: 0 
+                }}
+                onPress={() => setVisibleWorkTypeMenu(true)}
+                style={[styles.menuButton, { backgroundColor: colors.primary }]}
+                labelStyle={[styles.menuButtonText, { color: colors.background }]} // Цвет текста белый
+              >
+                {workType || 'Выберите вид работы'}
+              </PaperButton>
+            }
+          >
+            {workTypes.map((type) => (
+              <Menu.Item
+                key={type}
+                titleStyle={[styles.menuItemText, { color: colors.text }]}
+                title={type}
+                onPress={() => {
+                  if (workType !== type) {
+                    setWorkType(type);
+                    setVisibleWorkTypeMenu(false);
+                    setWorkResult('');
+                  }
+                }}
+              />
+            ))}
+          </Menu>
 
-        <Text style={styles.label}>✅ Результат работы:</Text>
-        <Picker
-          selectedValue={workResult}
-          onValueChange={setWorkResult}
-          style={{ color: colors.text, backgroundColor: colors.card }}
-          enabled={!!workType}
-        >
-          <Picker.Item label="Выберите результат" value="" />
-          {workResultsMap[workType]?.map((result) => (
-            <Picker.Item key={result} label={result} value={result} />
-          ))}
-        </Picker>
+          <Text style={[styles.label, { color: colors.text }]}>✅ Результат работы:</Text>
+          <Menu
+            visible={visibleWorkResultMenu}
+            onDismiss={() => setVisibleWorkResultMenu(false)}
+            anchor={
+              <PaperButton
+                mode="text"
+                contentStyle={{
+                  justifyContent: 'flex-start',
+                  paddingLeft: 0 
+                }}
+                onPress={() => setVisibleWorkResultMenu(true)}
+                style={[styles.menuButton, { backgroundColor: colors.primary }]}
+                labelStyle={[styles.menuButtonText, { color: colors.background }]} // Цвет текста белый
+              >
+                {workResult || 'Выберите результат'}
+              </PaperButton>
+            }
+          >
+            {workResultsMap[workType]?.map((result) => (
+              <Menu.Item
+                key={result}
+                titleStyle={[styles.menuItemText, { color: colors.text }]}
+                title={result}
+                onPress={() => {
+                  if (workResult !== result) {
+                    setWorkResult(result);
+                    setVisibleWorkResultMenu(false);
+                  }
+                }}
+              />
+            ))}
+          </Menu>
 
-        <Text style={styles.label}>👤 ФИО инспектора 1:</Text>
-        <TextInput
-          style={styles.input}
-          value={inspector1}
-          onChangeText={setInspector1}
-          placeholder="Иванов И.И."
-          placeholderTextColor={colors.text}
-        />
+          <Text style={[styles.label, { color: colors.text }]}>👤 ФИО инспектора 1:</Text>
+            <Menu
+              visible={menuVisible}
+              onDismiss={() => setMenuVisible(false)}
+              anchor={
+                <PaperButton
+                  mode="text"
+                  contentStyle={{
+                    justifyContent: 'flex-start',
+                    paddingLeft: 0 
+                  }}
+                  onPress={() => setMenuVisible(true)}
+                  style={[styles.menuButton, { backgroundColor: colors.primary }]}
+                  labelStyle={[styles.menuButtonText, { color: colors.background }]}
+                >
+                  {inspector1 || 'Выберите инспектора'}
+                </PaperButton>
+              }
+            >
+              {inspectors.map((inspector) => (
+                <Menu.Item
+                  key={inspector.id}
+                  title={inspector.name}
+                  onPress={() => {
+                    setInspector1(inspector.name);
+                    setMenuVisible(false);
+                  }}
+                />
+              ))}
+            </Menu>
+
+            <TouchableOpacity onPress={async () => {
+              const data = await dbOps.getInspectors();
+              setInspectors(data);
+              setInspectorsList(data);
+            }} style={styles.button}>
+              <Text style={styles.buttonText}>🔄 Обновить инспекторов</Text>
+            </TouchableOpacity>
 
         <Text style={styles.label}>👤 ФИО инспектора 2:</Text>
         <TextInput
           style={styles.input}
           value={inspector2}
           onChangeText={setInspector2}
-          placeholder="Петров П.П. (если есть)"
+          placeholder="Петров П.П."
           placeholderTextColor={colors.text}
         />
 
-        <TouchableOpacity style={styles.button} onPress={pickImage}>
-          <Text style={styles.buttonText}>
-            <Ionicons name="camera" size={16} color={colors.card} /> Сделать фото
-          </Text>
+        <TouchableOpacity onPress={pickImage} style={styles.button}>
+          <Text style={styles.buttonText}>📸 Сделать фото</Text>
         </TouchableOpacity>
 
-        {photoUris.length > 0 && (
-          <View style={styles.imageContainer}>
-            {photoUris.map((uri, index) => (
-              <Image key={index} source={{ uri }} style={styles.image} />
-            ))}
-          </View>
-        )}
+        <View style={styles.imageContainer}>
+          {photoUris.map((uri, index) => (
+            <Image key={index} source={{ uri }} style={styles.image} />
+          ))}
+        </View>
 
-        <View style={styles.separator} />
-
-        <TouchableOpacity style={styles.button} onPress={submitEntry}>
-          <Text style={styles.buttonText}>
-            <Ionicons name="save" size={16} color={colors.card} /> Сохранить запись
-          </Text>
+        <TouchableOpacity onPress={submitEntry} style={styles.button}>
+          <Text style={styles.buttonText}>💾 Сохранить</Text>
         </TouchableOpacity>
 
-        <View style={styles.separator} />
-
-        <TouchableOpacity style={styles.button} onPress={generateXLSXReport}>
-          <Text style={styles.buttonText}>
-            <Ionicons name="document-text" size={16} color={colors.card} /> Сформировать XLSX отчёт
-          </Text>
+        <TouchableOpacity onPress={generateXLSXReport} style={styles.button}>
+          <Text style={styles.buttonText}>📊 Скачать отчет</Text>
         </TouchableOpacity>
+
       </ScrollView>
     </View>
+    </PaperProvider>
   );
 }
