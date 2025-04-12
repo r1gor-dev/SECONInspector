@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, Button, ScrollView, Alert, Image, StyleSheet } from 'react-native';
+import { View, Text, TextInput, Button, ScrollView, Alert, Image, StyleSheet, TouchableOpacity } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
-import { DarkTheme, DefaultTheme, ThemeProvider, useTheme } from '@react-navigation/native';
+import { useTheme } from '@react-navigation/native';
+import {Ionicons} from '@expo/vector-icons';
 
 type Entry = {
   address: string;
@@ -73,7 +74,10 @@ export default function App() {
   };
 
   const generateReport = async () => {
-
+    if(entries.length===0){
+      Alert.alert('Нет записи для отчёта :(');
+      return;
+    }
     const lastEntry = entries[entries.length - 1]; 
 
     const clean = (str:string) =>
@@ -91,20 +95,76 @@ export default function App() {
     await Sharing.shareAsync(fileUri);
   };
 
+  const styles = StyleSheet.create({
+    container: {
+      flex: 1,
+      padding: 20,
+      paddingBottom: 40,
+      backgroundColor: colors.background,
+    },
+    title: {
+      fontSize: 24,
+      fontWeight: 'bold',
+      marginBottom: 20,
+      textAlign: 'center',
+      color: colors.text,
+    },
+    label: {
+      marginBottom: 4,
+      marginTop: 10,
+      fontWeight: '600',
+      color: colors.text,
+    },
+    input: {
+      borderBottomWidth: 1,
+      borderColor: colors.border,
+      marginBottom: 12,
+      padding: 8,
+      color: colors.text,
+    },
+    image: {
+      width: 300,
+      height: 300,
+      marginVertical: 15,
+      alignSelf: 'center',
+      borderRadius: 8,
+    },
+    header: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginBottom: 10,
+    },
+    separator: {
+      marginVertical: 10,
+      height: 1,
+      backgroundColor: colors.border,
+    },
+    button: {
+      marginVertical: 8,
+      padding: 12,
+      borderRadius: 8,
+      backgroundColor: colors.primary,
+      alignItems: 'center',
+    },
+    buttonText: {
+      color: colors.card,
+      fontWeight: 'bold',
+    },
+  });
+
   return (
     <ScrollView contentContainerStyle={styles.container}>
       <View style={styles.header}>
         <Text style={styles.title}>Энергоинспектор</Text>
       </View>
 
-      <View style={styles.header}>
-        <Text style={styles.label}>🏠 Адрес:</Text>
-      </View>
+      <Text style={styles.label}>🏠 Адрес:</Text>
       <TextInput
         style={styles.input}
         value={address}
         onChangeText={setAddress}
         placeholder="Введите адрес"
+        placeholderTextColor={colors.text}
       />
 
       <Text style={styles.label}>🔢 Показания прибора:</Text>
@@ -113,6 +173,7 @@ export default function App() {
         value={meterReading}
         onChangeText={setMeterReading}
         placeholder="000000"
+        placeholderTextColor={colors.text}
         keyboardType="numeric"
       />
 
@@ -122,6 +183,7 @@ export default function App() {
         value={actionType}
         onChangeText={setActionType}
         placeholder="ограничение / возобновление"
+        placeholderTextColor={colors.text}
       />
 
       <Text style={styles.label}>💬 Комментарии:</Text>
@@ -131,53 +193,34 @@ export default function App() {
         onChangeText={setComments}
         multiline
         placeholder="Замечания, уточнения..."
+        placeholderTextColor={colors.text}
       />
 
-      <Button title="📸 Сделать фото" onPress={pickImage} />
+      <TouchableOpacity style={styles.button} onPress={pickImage}>
+        <Text style={styles.buttonText}>
+          <Ionicons name="camera" size={16} color={colors.card} /> Сделать фото
+        </Text>
+      </TouchableOpacity>
+
       {photoUri && <Image source={{ uri: photoUri }} style={styles.image} />}
 
       <View style={styles.separator} />
-      <Button title="✅ Сохранить запись" onPress={submitEntry} />
+      
+      <TouchableOpacity style={styles.button} onPress={submitEntry}>
+        <Text style={styles.buttonText}>
+          <Ionicons name="save" size={16} color={colors.card} /> Сохранить запись
+        </Text>
+      </TouchableOpacity>
+
       <View style={styles.separator} />
-      <Button title="📄 Сформировать отчёт" onPress={generateReport} />
+      
+      <TouchableOpacity style={styles.button} onPress={generateReport}>
+        <Text style={styles.buttonText}>
+          <Ionicons name="document-text" size={16} color={colors.card} /> Сформировать отчёт
+        </Text>
+      </TouchableOpacity>
     </ScrollView>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    padding: 20,
-    paddingBottom: 40,
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    marginBottom: 20,
-    textAlign: 'center',
-  },
-  label: {
-    marginBottom: 4,
-    marginTop: 10,
-    fontWeight: '600',
-  },
-  input: {
-    borderBottomWidth: 1,
-    borderColor: '#666',
-    marginBottom: 12,
-    padding: 8,
-  },
-  image: {
-    width: 550,
-    height: 700,
-    marginVertical: 15,
-    alignSelf: 'center',
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 10,
-  },
-  separator: {
-    marginVertical: 10,
-  },
-});
+
