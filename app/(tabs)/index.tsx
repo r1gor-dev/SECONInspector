@@ -9,10 +9,12 @@ import * as XLSX from 'xlsx';
 import { format } from 'date-fns';
 import { ru } from 'date-fns/locale';
 import * as Location from 'expo-location';
+import { Picker } from '@react-native-picker/picker';
 
 type Entry = {
   settlement: string;
   street: string;
+  house: string;
   apartment: string;
   room: string;
   meterNumber: string;
@@ -30,6 +32,7 @@ export default function App() {
   const { colors } = useTheme();
   const [settlement, setSettlement] = useState('');
   const [street, setStreet] = useState('');
+  const [house, setHouse] = useState('');
   const [apartment, setApartment] = useState('');
   const [room, setRoom] = useState('');
   const [meterNumber, setMeterNumber] = useState('');
@@ -41,31 +44,67 @@ export default function App() {
   const [inspector2, setInspector2] = useState('');
   const [photoUris, setPhotoUris] = useState<string[]>([]);
   const [entries, setEntries] = useState<Entry[]>([]);
+  const workTypes = ['возобновление', 'отключение', 'ограничение'];
+
+  const workResultsMap: { [key: string]: string[] } = {
+    'возобновление': ['возобновление', 'недопуск'],
+    'отключение': ['отключение', 'оплата на месте', 'недопуск'],
+    'ограничение': ['не нарушено', 'нарушено'],
+  };
+
+
 
   const pickImage = async () => {
-    const permission = await ImagePicker.requestCameraPermissionsAsync();
-    if (!permission.granted) {
+    const cameraPermission = await ImagePicker.requestCameraPermissionsAsync();
+    if (!cameraPermission.granted) {
       Alert.alert('Нужно разрешение на доступ к камере!');
       return;
     }
 
-    const result = await ImagePicker.launchCameraAsync({ quality: 0.7, allowsMultipleSelection: true });
+    const { status } = await Location.requestForegroundPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Нужно разрешение на доступ к геолокации!');
+      return;
+    }
+
+    const location = await Location.getCurrentPositionAsync({});
+    const result = await ImagePicker.launchCameraAsync({ 
+      quality: 0.7, 
+      allowsMultipleSelection: true,
+      exif: true 
+    });
+
     if (!result.canceled && result.assets?.length) {
+      const timestamp = new Date();
+      const formattedTime = format(timestamp, 'ddMMyyyy_HHmmss');
+      const address = `${settlement}_${street}_${apartment || ''}_${room || ''}`.replace(/\s+/g, '_');
+      const isAvaliable = workResult.toLowerCase().includes('доступ') && !workResult.toLowerCase().includes('отсутствует');
+
       const newPhotoUris = await Promise.all(
-        result.assets.map(async (asset) => {
-          const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-          const filename = `photo_${timestamp}.jpg`;
-          const newPath = FileSystem.documentDirectory + filename;
+        result.assets.map(async (asset, index) => {
+          const fileName = isAvaliable
+            ? `${address}_${formattedTime}_${index + 1}.jpg`
+            : `${address}_доступ_отсутствует_${formattedTime}_${index + 1}.jpg`;
+            
+          const newPath = FileSystem.documentDirectory + fileName;
           await FileSystem.copyAsync({ from: asset.uri, to: newPath });
+          
+          // Добавляем геолокацию в метаданные
+          const locationInfo = `lat=${location.coords.latitude},lon=${location.coords.longitude}`;
+          await FileSystem.writeAsStringAsync(newPath + '.txt', locationInfo);
+          
           return newPath;
         })
       );
-      setPhotoUris([...photoUris, ...newPhotoUris]);
+      
+      // Фильтруем пустые URI (если были отменены из-за темноты)
+      const filteredUris = newPhotoUris.filter(uri => uri !== '');
+      setPhotoUris([...photoUris, ...filteredUris]);
     }
   };
 
   const submitEntry = () => {
-    if (!settlement || !street || !apartment || !meterNumber) {
+    if (!settlement || !street || !house || !apartment || !meterNumber || (!inspector1 && !inspector2) || !workType || !workResult) {
       Alert.alert('Заполните обязательные поля (Населённый пункт, Улица, Квартира, Номер прибора)');
       return;
     }
@@ -74,6 +113,7 @@ export default function App() {
     const newEntry = {
       settlement,
       street,
+      house,
       apartment,
       room,
       meterNumber,
@@ -95,6 +135,7 @@ export default function App() {
   const resetForm = () => {
     setSettlement('');
     setStreet('');
+    setHouse('');
     setApartment('');
     setRoom('');
     setMeterNumber('');
@@ -117,6 +158,7 @@ export default function App() {
         '№ п/п',
         'Населенный пункт',
         'Улица',
+        'Дом',
         'Квартира',
         'Комната',
         'Тип и номер прибора учета',
@@ -132,6 +174,7 @@ export default function App() {
         index + 1,
         entry.settlement,
         entry.street,
+        entry.house,
         entry.apartment,
         entry.room,
         entry.meterNumber,
@@ -205,6 +248,7 @@ export default function App() {
       flexDirection: 'row',
       alignItems: 'center',
       marginBottom: 10,
+      marginTop: 45,
     },
     separator: {
       marginVertical: 10,
@@ -231,7 +275,7 @@ export default function App() {
           <Text style={styles.title}>Энергоинспектор</Text>
         </View>
 
-        <Text style={styles.label}>🏠 Населенный пункт:</Text>
+        <Text style={styles.label}>🏙️ Населенный пункт:</Text>
         <TextInput
           style={styles.input}
           value={settlement}
@@ -245,8 +289,18 @@ export default function App() {
           style={styles.input}
           value={street}
           onChangeText={setStreet}
-          placeholder="Улица, дом"
+          placeholder="Улица"
           placeholderTextColor={colors.text}
+        />
+
+        <Text style={styles.label}>🏠 Дом:</Text>
+        <TextInput
+          style={styles.input}
+          value={house}
+          onChangeText={setHouse}
+          placeholder="Дом"
+          placeholderTextColor={colors.text}
+          keyboardType="numeric"
         />
 
         <Text style={styles.label}>🏢 Квартира:</Text>
@@ -266,6 +320,7 @@ export default function App() {
           onChangeText={setRoom}
           placeholder="Номер комнаты (если есть)"
           placeholderTextColor={colors.text}
+          keyboardType="numeric"
         />
 
         <Text style={styles.label}>🔢 Тип и номер прибора учета:</Text>
@@ -273,7 +328,7 @@ export default function App() {
           style={styles.input}
           value={meterNumber}
           onChangeText={setMeterNumber}
-          placeholder="Например: СЭТ-4-1 123456"
+          placeholder="Например: СЕ 102  №: 12501176862604"
           placeholderTextColor={colors.text}
         />
 
@@ -296,22 +351,32 @@ export default function App() {
         />
 
         <Text style={styles.label}>⚙️ Вид работы:</Text>
-        <TextInput
-          style={styles.input}
-          value={workType}
-          onChangeText={setWorkType}
-          placeholder="Ограничение/возобновление/проверка"
-          placeholderTextColor={colors.text}
-        />
+        <Picker
+          selectedValue={workType}
+          onValueChange={(value) => {
+            setWorkType(value);
+            setWorkResult(''); // Сброс при смене типа работы
+          }}
+          style={{ color: colors.text, backgroundColor: colors.card }}
+        >
+          <Picker.Item label="Выберите вид работы" value="" />
+          {workTypes.map((type) => (
+            <Picker.Item key={type} label={type} value={type} />
+          ))}
+        </Picker>
 
         <Text style={styles.label}>✅ Результат работы:</Text>
-        <TextInput
-          style={styles.input}
-          value={workResult}
-          onChangeText={setWorkResult}
-          placeholder="Результат выполненных работ"
-          placeholderTextColor={colors.text}
-        />
+        <Picker
+          selectedValue={workResult}
+          onValueChange={setWorkResult}
+          style={{ color: colors.text, backgroundColor: colors.card }}
+          enabled={!!workType}
+        >
+          <Picker.Item label="Выберите результат" value="" />
+          {workResultsMap[workType]?.map((result) => (
+            <Picker.Item key={result} label={result} value={result} />
+          ))}
+        </Picker>
 
         <Text style={styles.label}>👤 ФИО инспектора 1:</Text>
         <TextInput
