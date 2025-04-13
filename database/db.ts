@@ -15,6 +15,7 @@ export const initializeDatabase = async () => {
         name TEXT NOT NULL,
         createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
+
     `);
     
     console.log('Database initialized successfully');
@@ -34,6 +35,7 @@ export const createDatabaseOperations = (db: SQLite.SQLiteDatabase) => ({
     );
     return result;
   },
+
   
   // Add new inspector
   async addInspector(name: string) {

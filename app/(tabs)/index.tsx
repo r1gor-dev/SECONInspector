@@ -3,7 +3,7 @@ import { View, Modal, Text, TextInput, Button, ScrollView, Alert, Image, StyleSh
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
-import { useTheme } from '@react-navigation/native';
+import { useTheme, useRoute } from '@react-navigation/native';
 import * as XLSX from 'xlsx';
 import { format } from 'date-fns';
 import { ru } from 'date-fns/locale';
@@ -34,6 +34,9 @@ type Entry = {
 };
 
 export default function App() {
+  type RouteParams = {
+    inspectorId: number;
+  };
   const { colors } = useTheme();
   const { dbOps, initialized } = useDatabase();
   const [settlement, setSettlement] = useState('');
@@ -56,6 +59,8 @@ export default function App() {
   const [inspector2, setInspector2] = useState('');
   const [photoUris, setPhotoUris] = useState<string[]>([]);
   const [entries, setEntries] = useState<Entry[]>([]);
+  const route = useRoute<RouteProp<Record<string, RouteParams>, string>>();
+  const inspectorId = route.params?.inspectorId ?? null;
   const workTypes = ['возобновление', 'отключение', 'ограничение'];
 
   const workResultsMap: { [key: string]: string[] } = {
@@ -88,7 +93,6 @@ export default function App() {
       Alert.alert('Нужны разрешения на камеру и геолокацию!');
       return;
     }
-
     const location = await Location.getCurrentPositionAsync({});
     const result = await ImagePicker.launchCameraAsync({ 
       quality: 0.7, 
@@ -107,6 +111,7 @@ export default function App() {
       const formattedTime = format(timestamp, 'ddMMyyyy_HHmmss');
       const address = `${settlement}_${street}_${apartment || ''}_${room || ''}`.replace(/\s+/g, '_');
       const isAvaliable = workResult.toLowerCase().includes('доступ') && !workResult.toLowerCase().includes('отсутствует');
+      
 
       const newPhotoUris = await Promise.all(
         result.assets.map(async (asset, index) => {
@@ -119,6 +124,10 @@ export default function App() {
 
           const locationInfo = `lat=${location.coords.latitude},lon=${location.coords.longitude}`;
           await FileSystem.writeAsStringAsync(newPath + '.txt', locationInfo);
+
+          if (dbOps && inspectorId) {
+            await dbOps.addPhoto(inspectorId, newPath, fileName);
+          }
 
           return newPath;
         })
@@ -511,10 +520,31 @@ export default function App() {
         <TouchableOpacity onPress={pickImage} style={styles.button}>
           <Text style={styles.buttonText}>📸 Сделать фото</Text>
         </TouchableOpacity>
-
+        <Stack.Screen
+          name="PhotoScreen"
+          component={PhotoScreen} // тот самый index.tsx
+          options={({ route }) => ({ title: `Фото: ${route.params.name}` })}
+        />
         <View style={styles.imageContainer}>
           {photoUris.map((uri, index) => (
-            <Image key={index} source={{ uri }} style={styles.image} />
+            <View key={index} style={{ position: 'relative', margin: 10 }}>
+              <Image source={{ uri }} style={styles.image} />
+              <TouchableOpacity
+                onPress={() => {
+                  setPhotoUris((prevUris) => prevUris.filter((_, i) => i !== index));
+                }}
+                style={{
+                  position: 'absolute',
+                  top: 20,
+                  right: 5,
+                  backgroundColor: 'rgba(255, 0, 0, 0.7)',
+                  borderRadius: 12,
+                  padding: 4,
+                }}
+              >
+                <Text style={{ color: 'white', fontWeight: 'bold' }}>✖</Text>
+              </TouchableOpacity>
+            </View>
           ))}
         </View>
 

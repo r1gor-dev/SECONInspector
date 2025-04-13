@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, TextInput, Button, StyleSheet, FlatList, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
-import { useTheme } from '@react-navigation/native';
+import { useTheme, useNavigation } from '@react-navigation/native';
 import { useDatabase } from '../../database/dbcontext';
 
 export default function ExploreScreen() {
@@ -9,6 +9,7 @@ export default function ExploreScreen() {
   const [name, setName] = useState('');
   const [inspectors, setInspectors] = useState<{id: number, name: string}[]>([]);
   const [loading, setLoading] = useState(true);
+  const navigation = useNavigation();
 
   useEffect(() => {
     const fetchData = async () => {
