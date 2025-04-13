@@ -143,7 +143,7 @@ export default function ExploreScreen() {
                 style="width: 100%; height: auto; max-height: 200px; border-radius: 4px; margin-bottom: 8px;"
               />
               <div style="font-size: 14px; color: #666;">
-                <div>📍 Координаты: ${img.latitude.toFixed(6)}, ${img.longitude.toFixed(6)}</div>
+                <div>Координаты: ${img.latitude.toFixed(6)}, ${img.longitude.toFixed(6)}</div>
                 <div style="margin-top: 4px;">🕒 ${new Date().toLocaleString()}</div>
               </div>
             </div>

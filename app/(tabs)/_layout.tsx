@@ -1,6 +1,6 @@
 import { Tabs } from 'expo-router';
 import React from 'react';
-import { Ionicons } from '@expo/vector-icons'; // или другой набор иконок
+import { Ionicons } from '@expo/vector-icons';
 import { DatabaseProvider } from '../../database/dbcontext';
 
 export default function TabLayout() {
@@ -21,7 +21,7 @@ export default function TabLayout() {
 
             return <Ionicons name={iconName as any} size={size} color={color} />;
           },
-          tabBarActiveTintColor: 'tomato',
+          tabBarActiveTintColor: 'cyan',
           tabBarInactiveTintColor: 'gray',
           headerShown: false,
         })}
