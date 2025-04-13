@@ -221,7 +221,11 @@ export default function App() {
     setWorkResult('');
     setInspector1('');
     setInspector2('');
-    setNoAccessToMeter(!noAccessToMeter);
+    if (noAccessToMeter == true){
+      setNoAccessToMeter(!noAccessToMeter);
+    } else {
+      setNoAccessToMeter(noAccessToMeter);
+    }
     setPhotoUris([]);
   };
 
