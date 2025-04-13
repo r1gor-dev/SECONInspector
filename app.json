@@ -27,7 +27,8 @@
         "RECORD_AUDIO",
         "ACCESS_FINE_LOCATION",
         "ACCESS_MEDIA_LOCATION",
-        "FOREGROUND_SERVICE"
+        "FOREGROUND_SERVICE",
+        "INTERNET"
       ],
 
       "package": "com.tnsenergo.SECONInspector"

@@ -1,6 +1,8 @@
 // app/context/DatabaseContext.tsx
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { DatabaseOperations, initializeDatabase, createDatabaseOperations } from './db';
+import { 
+  Alert} from 'react-native';
 import * as SQLite from 'expo-sqlite';
 type DatabaseContextType = {
   db: SQLite.SQLiteDatabase | null;
@@ -16,9 +18,14 @@ export const DatabaseProvider = ({ children }) => {
 
   useEffect(() => {
     (async () => {
-      const dbInstance = await initializeDatabase();
-      setDb(dbInstance);
-      setInitialized(true);
+      try {
+        const dbInstance = await initializeDatabase();
+        console.log('✅ DB initialized');
+        setDb(dbInstance);
+        setInitialized(true);
+      } catch (e) {
+        Alert.alert('❌ DB initialization error:');
+      }
     })();
   }, []);
 
