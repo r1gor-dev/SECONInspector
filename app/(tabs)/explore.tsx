@@ -4,6 +4,10 @@ import { useTheme } from '@react-navigation/native';
 import { useDatabase } from '../../database/dbcontext';
 import * as MediaLibrary from 'expo-media-library';
 import { WebView } from 'react-native-webview';
+import { ScrollView } from 'react-native';
+import * as FileSystem from 'expo-file-system';
+import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+
 
 export default function ExploreScreen() {
   const { colors } = useTheme();
@@ -11,7 +15,10 @@ export default function ExploreScreen() {
   const [name, setName] = useState('');
   const [inspectors, setInspectors] = useState<{ id: number; name: string }[]>([]);
   const [loadingInspectors, setLoadingInspectors] = useState(true);
-  const [geoImages, setGeoImages] = useState<{ uri: string; latitude: number; longitude: number }[]>([]);
+  const [geoImages, setGeoImages] = useState<
+  { uri: string; latitude: number; longitude: number; base64: string }[]
+>([]);
+
   const [loadingImages, setLoadingImages] = useState(true);
 
   useEffect(() => {
@@ -27,22 +34,44 @@ export default function ExploreScreen() {
         }
       }
     };
+    const imageToBase64 = async (uri: string): Promise<string | null> => {
+      try {
+        const base64 = await FileSystem.readAsStringAsync(uri, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+        return `data:image/jpeg;base64,${base64}`;
+      } catch (error) {
+        console.warn('Ошибка при конвертации изображения в base64:', error);
+        return null;
+      }
+    };
 
     const loadGeoTaggedImages = async () => {
       const { granted } = await MediaLibrary.requestPermissionsAsync();
       if (!granted) return;
-
-      const photos = await MediaLibrary.getAssetsAsync({ mediaType: 'photo', first: 100 });
-
-      const imageWithLocation = await Promise.all(
+    
+      const album = await MediaLibrary.getAlbumAsync('ЭнергоИнспектор');
+      if (!album) return;
+    
+      const photos = await MediaLibrary.getAssetsAsync({
+        album,
+        mediaType: 'photo',
+        first: 100,
+      });
+    
+      const enrichedImages = await Promise.all(
         photos.assets.map(async (photo) => {
           try {
             const info = await MediaLibrary.getAssetInfoAsync(photo);
             if (info?.location) {
+              const base64 = await imageToBase64(info.uri);
+              if (!base64) return null;
+    
               return {
                 uri: info.uri,
                 latitude: info.location.latitude,
                 longitude: info.location.longitude,
+                base64,
               };
             }
           } catch (e) {
@@ -51,10 +80,11 @@ export default function ExploreScreen() {
           return null;
         })
       );
-
-      setGeoImages(imageWithLocation.filter(Boolean) as any);
+    
+      setGeoImages(enrichedImages.filter(Boolean) as any);
       setLoadingImages(false);
     };
+    
 
     fetchData();
     loadGeoTaggedImages();
@@ -96,37 +126,82 @@ export default function ExploreScreen() {
 
   const generateYandexMapHTML = () => {
     const markers = geoImages
-      .map(
-        (img) => `
-        new ymaps.Placemark([${img.latitude}, ${img.longitude}], {
-          balloonContent: '<img src="${img.uri}" width="150" height="150" />'
-        })`
-      )
+      .map((img) => {
+        // Извлекаем имя файла из URI
+        const fileName = img.uri.split('/').pop() || 'Фото';
+        // Убираем расширение файла
+        const displayName = fileName.replace(/\.[^/.]+$/, '');
+        
+        return `new ymaps.Placemark([${img.latitude}, ${img.longitude}], {
+          balloonContent: \`
+            <div style="padding: 10px; max-width: 300px;">
+              <div style="font-weight: bold; font-size: 16px; margin-bottom: 8px; color: #333;">
+                📸 ${displayName}
+              </div>
+              <img 
+                src="${img.base64}" 
+                style="width: 100%; height: auto; max-height: 200px; border-radius: 4px; margin-bottom: 8px;"
+              />
+              <div style="font-size: 14px; color: #666;">
+                <div>📍 Координаты: ${img.latitude.toFixed(6)}, ${img.longitude.toFixed(6)}</div>
+                <div style="margin-top: 4px;">🕒 ${new Date().toLocaleString()}</div>
+              </div>
+            </div>
+          \`,
+          iconCaption: "${displayName}"
+        })`;
+      })
       .join(',\n');
-
+  
     return `
       <html>
         <head>
           <meta charset="utf-8" />
           <script src="https://api-maps.yandex.ru/2.1/?lang=ru_RU" type="text/javascript"></script>
+          <style>
+            .balloon-title {
+              font-weight: bold;
+              font-size: 16px;
+              margin-bottom: 8px;
+              color: #333;
+            }
+            .balloon-image {
+              width: 100%;
+              height: auto;
+              max-height: 200px;
+              border-radius: 4px;
+              margin-bottom: 8px;
+            }
+            .balloon-info {
+              font-size: 14px;
+              color: #666;
+            }
+          </style>
         </head>
         <body>
           <div id="map" style="width:100%; height:100%;"></div>
           <script>
             ymaps.ready(function () {
               var map = new ymaps.Map("map", {
-                center: [55.751574, 37.573856],
+                center: [53.195187, 45.018060],
                 zoom: 10
               });
-
+  
               var geoObjects = [${markers}];
               geoObjects.forEach(obj => map.geoObjects.add(obj));
+              
+              // Автоматически открываем первый балун
+              if (geoObjects.length > 0) {
+                geoObjects[0].balloon.open();
+              }
             });
           </script>
         </body>
       </html>
     `;
   };
+  
+  
 
   const styles = StyleSheet.create({
     container: { flex: 1, padding: 10 },
@@ -137,6 +212,7 @@ export default function ExploreScreen() {
       marginBottom: 10,
       borderRadius: 5,
       color: colors.text,
+      marginTop: 20,
     },
     listItem: {
       padding: 15,
@@ -150,7 +226,9 @@ export default function ExploreScreen() {
       color: 'red',
     },
     title: {
-      fontSize: 20,
+      fontSize: 23,
+      marginTop: 55,
+      marginLeft: 10,
       fontWeight: 'bold',
       marginBottom: 10,
       color: colors.text,
@@ -178,7 +256,7 @@ export default function ExploreScreen() {
   }
 
   return (
-    <View style={styles.container}>
+    <ScrollView contentContainerStyle={styles.container}>
       <Text style={styles.title}>Управление инспекторами</Text>
       <TextInput
         style={styles.input}
@@ -188,24 +266,24 @@ export default function ExploreScreen() {
         placeholderTextColor={colors.text}
       />
       <Button title="Добавить инспектора" onPress={handleAddInspector} />
-      <FlatList
-        data={inspectors}
-        keyExtractor={(item) => item.id.toString()}
-        renderItem={({ item }) => (
-          <View style={styles.listItem}>
+      {inspectors.length === 0 ? (
+        <Text style={{ textAlign: 'center', marginTop: 20, color: colors.text }}>
+          Нет добавленных инспекторов
+        </Text>
+      ) : (
+        inspectors.map((item) => (
+          <View key={item.id} style={styles.listItem}>
             <Text style={{ color: colors.text }}>{item.name}</Text>
             <TouchableOpacity onPress={() => handleDeleteInspector(item.id)}>
               <Text style={styles.deleteButton}>Удалить</Text>
             </TouchableOpacity>
           </View>
-        )}
-        ListEmptyComponent={
-          <Text style={{ textAlign: 'center', marginTop: 20, color: colors.text }}>
-            Нет добавленных инспекторов
-          </Text>
-        }
-      />
-      <Text style={styles.title}>📍 Фото с координатами</Text>
+        ))
+      )}
+
+      <Text style={styles.title}>
+        <Icon name="map-marker-multiple" size={26}/>
+        <Icon name="map-search-outline" size={26} /> Карта координат</Text>
       <View style={styles.mapContainer}>
         <WebView
           originWhitelist={['*']}
@@ -213,6 +291,6 @@ export default function ExploreScreen() {
           style={{ flex: 1 }}
         />
       </View>
-    </View>
+      </ScrollView>
   );
 }

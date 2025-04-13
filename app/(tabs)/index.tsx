@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback  } from 'react';
 import { View, Modal, Text, TextInput, Button, ScrollView,
-   Alert, Image, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
+   Alert, Image, Platform,StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
@@ -15,11 +15,8 @@ import { useFocusEffect } from '@react-navigation/native';
 import { WebView } from 'react-native-webview';
 import * as ImageManipulator from 'expo-image-manipulator';
 import * as MediaLibrary from 'expo-media-library';
+import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 
-// TODO: Детектор размытия фотки, разобраться с фотками (куда они сохраняются)
-// TODO: прикреплять фотографии в профиль к сотруднику вместе с датой и временем
-// TODO: Сделать презентацию
-// TODO: Значки для нижнего таба
 type Entry = {
   settlement: string;
   street: string;
@@ -35,6 +32,13 @@ type Entry = {
   inspector2: string;
   photoUris: string[];
   timestamp: string;
+};
+
+type GeoImage = {
+  uri: string;
+  latitude: number;
+  longitude: number;
+  base64: string;
 };
 
 export default function App() {
@@ -54,12 +58,15 @@ export default function App() {
   const [workType, setWorkType] = useState('');
   const [workResult, setWorkResult] = useState('');
   const [menuVisible, setMenuVisible] = useState(false);
+  const [menuVisible2, setMenuVisible2] = useState(false);
   const [inspectorsList, setInspectorsList] = useState<{id: number, name: string}[]>([]);
   const [inspectors, setInspectors] = useState<{id: number, name: string}[]>([]);
   const [inspector1, setInspector1] = useState('');
   const [inspector2, setInspector2] = useState('');
   const [photoUris, setPhotoUris] = useState<string[]>([]);
   const [entries, setEntries] = useState<Entry[]>([]);
+  const [loading, setLoading] = useState(true);
+
   const workTypes = ['возобновление', 'отключение', 'ограничение'];
 
   const workResultsMap: { [key: string]: string[] } = {
@@ -85,132 +92,113 @@ export default function App() {
   const [visibleWorkResultMenu, setVisibleWorkResultMenu] = useState(false);
 
   const pickImage = async () => {
-    const cameraPermission = await ImagePicker.requestCameraPermissionsAsync();
-    const locationPermission = await Location.requestForegroundPermissionsAsync();
-
-    if (!cameraPermission.granted || locationPermission.status !== 'granted') {
-      Alert.alert('Нужны разрешения на камеру и геолокацию!');
+    // Запрашиваем необходимые разрешения
+    const [cameraPermission, locationPermission, mediaPermission] = await Promise.all([
+      ImagePicker.requestCameraPermissionsAsync(),
+      Location.requestForegroundPermissionsAsync(),
+      MediaLibrary.requestPermissionsAsync()
+    ]);
+  
+    if (!cameraPermission.granted || !locationPermission.granted || !mediaPermission.granted) {
+      Alert.alert('Требуются разрешения', 'Необходимо предоставить доступ к камере, геолокации и медиабиблиотеке');
       return;
     }
-    const location = await Location.getCurrentPositionAsync({});
-    const result = await ImagePicker.launchCameraAsync({ 
-      quality: 0.7, 
-      allowsMultipleSelection: true,
-      exif: true 
-    });
-
-    if (result.canceled) {
-      console.log("Съемка была отменена пользователем");
-      Alert.alert('Вы вышли из камеры.')
-      return;
-    }
-
-    if (!result.canceled && result.assets?.length) {
-      const timestamp = new Date();
-      const formattedTime = format(timestamp, 'ddMMyyyy_HHmmss');
-      const address = `${settlement}_${street}_${apartment || ''}_${room || ''}`.replace(/\s+/g, '_');
-      const isAvaliable = workResult.toLowerCase().includes('доступ') && !workResult.toLowerCase().includes('отсутствует');
-      
-
-      const newPhotoUris = await Promise.all(
-        result.assets.map(async (asset, index) => {
-          const fileName = isAvaliable
-            ? `${address}_${formattedTime}_${index + 1}.jpg`
-            : `${address}_доступ_отсутствует_${formattedTime}_${index + 1}.jpg`;
+  
+    try {
+      // Получаем текущее местоположение
+      const location = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.BestForNavigation
+      });
+  
+      // Делаем фото
+      const result = await ImagePicker.launchCameraAsync({
+        quality: 0.9,
+        allowsEditing: false,
+        allowsMultipleSelection: true,
+        exif: true,
+        cameraType: ImagePicker.CameraType.back
+      });
+  
+      if (result.canceled) {
+        Alert.alert('Отменено', 'Фотосъемка отменена пользователем');
+        return;
+      }
+  
+      if (result.assets?.length) {
+        const timestamp = new Date();
+        const formattedDate = format(timestamp, 'ddMMyyyy');
+        const formattedTime = format(timestamp, 'HHmmss');
+        
+        // Формируем базовое имя файла
+        const addressParts = [
+          settlement?.replace(/\s+/g, '_'),
+          street?.replace(/\s+/g, '_'),
+          `дом${house}`,
+          apartment ? `кв${apartment}` : '',
+          room ? `ком${room}` : ''
+        ].filter(Boolean);
+  
+        const baseFilename = addressParts.join('_');
+        
+        // Определяем тип фото (прибор или дверь)
+        const isMeterPhoto = workResult.toLowerCase().includes('доступ') && 
+                           !workResult.toLowerCase().includes('отсутствует');
+        const photoType = isMeterPhoto ? 'прибор' : 'дверь';
+  
+        // Обрабатываем все сделанные фото
+        const newPhotoUris = await Promise.all(
+          result.assets.map(async (asset, index) => {
+            const photoNumber = (index + 1).toString().padStart(2, '0');
+            const filename = `${baseFilename}_${photoType}_${formattedDate}_${formattedTime}_${photoNumber}.jpg`;
             
-          const newPath = FileSystem.documentDirectory + fileName;
-          await FileSystem.copyAsync({ from: asset.uri, to: newPath });
-
-          const locationInfo = `lat=${location.coords.latitude},lon=${location.coords.longitude}`;
-          await FileSystem.writeAsStringAsync(newPath + '.txt', locationInfo);
-
-          return newPath;
-        })
-      );
-      
-      const filteredUris = newPhotoUris.filter(uri => uri !== '');
-      setPhotoUris([...photoUris, ...filteredUris]);
-    }
-  };
-
-  const ExploreScreen = () => {
-    const [geoImages, setGeoImages] = useState<{ uri: string; latitude: number; longitude: number }[]>([]);
-    const [loading, setLoading] = useState(true);
+            // Сохраняем в приватное хранилище приложения
+            const newPath = `${FileSystem.documentDirectory}${filename}`;
+            await FileSystem.copyAsync({ from: asset.uri, to: newPath });
   
-    useEffect(() => {
-      const loadGeoTaggedImages = async () => {
-        const { granted } = await MediaLibrary.requestPermissionsAsync();
-        if (!granted) return;
-  
-        const photos = await MediaLibrary.getAssetsAsync({ mediaType: 'photo', first: 100 });
-  
-        const imageWithLocation = await Promise.all(
-          photos.assets.map(async (photo) => {
-            try {
-              const info = await MediaLibrary.getAssetInfoAsync(photo);
-              if (info?.location) {
-                return {
-                  uri: info.uri,
-                  latitude: info.location.latitude,
-                  longitude: info.location.longitude,
-                };
-              }
-            } catch (e) {
-              console.warn(`Error reading location from image ${photo.filename}`, e);
+            // Добавляем геоданные в EXIF (для Android)
+            if (Platform.OS === 'android') {
+              // Здесь не нужно использовать updateAssetLocationAsync, так как это не поддерживается.
+              // Просто сохраняем фото с EXIF-метаданными, полученными при съемке.
+              
+              const newPath = `${FileSystem.documentDirectory}${filename}`;
+              await FileSystem.copyAsync({ from: asset.uri, to: newPath });
+            
+              // Добавляем фото в медиабиблиотеку
+              const assetInfo = await MediaLibrary.createAssetAsync(newPath);
+            
+              // Сохраняем фото в новый альбом
+              await MediaLibrary.createAlbumAsync('ЭнергоИнспектор', assetInfo, false);
+              
+              // Дополнительно сохраняем координаты в текстовый файл
+              const locationText = `Широта: ${location.coords.latitude}\nДолгота: ${location.coords.longitude}\nТочность: ${location.coords.accuracy}m`;
+              await FileSystem.writeAsStringAsync(`${newPath}.txt`, locationText);
             }
-            return null;
+            
+  
+            // Сохраняем в галерею с геотегом
+            const assetInfo = await MediaLibrary.createAssetAsync(newPath);
+            await MediaLibrary.createAlbumAsync('ЭнергоИнспектор', assetInfo, false);
+  
+            // Дополнительно сохраняем координаты в текстовый файл
+            const locationText = `Широта: ${location.coords.latitude}\nДолгота: ${location.coords.longitude}\nТочность: ${location.coords.accuracy}m`;
+            await FileSystem.writeAsStringAsync(`${newPath}.txt`, locationText);
+  
+            return newPath;
           })
         );
   
-        setGeoImages(imageWithLocation.filter(Boolean) as any);
-        setLoading(false);
-      };
-  
-      loadGeoTaggedImages();
-    }, []);
-  
-    if (loading) {
-      return (
-        <View style={styles.centered}>
-          <ActivityIndicator size="large" />
-          <Text>Загрузка фотографий с координатами...</Text>
-        </View>
-      );
+        setPhotoUris(prev => [...prev, ...newPhotoUris.filter(Boolean)]);
+        
+        Alert.alert(
+          'Фото сохранены', 
+          `Сделано ${newPhotoUris.length} фото.\nПример имени: ${newPhotoUris[0]?.split('/').pop()}`
+        );
+      }
+    } catch (error) {
+      console.error('Ошибка при фотофиксации:', error);
+      Alert.alert('Ошибка', 'Не удалось сохранить фотографии');
     }
-
-    const generateYandexMapHTML = () => {
-      const markers = geoImages
-        .map(
-          (img, i) => `
-          new ymaps.Placemark([${img.latitude}, ${img.longitude}], {
-            balloonContent: '<img src="${img.uri}" width="150" height="150" />'
-          })`
-        )
-        .join(',\n');
-  
-      return `
-        <html>
-          <head>
-            <script src="https://api-maps.yandex.ru/2.1/?lang=ru_RU" type="text/javascript"></script>
-          </head>
-          <body>
-            <div id="map" style="width:100%; height:100%;"></div>
-            <script>
-              ymaps.ready(function () {
-                var map = new ymaps.Map("map", {
-                  center: [55.751574, 37.573856],
-                  zoom: 10
-                });
-  
-                var geoObjects = [${markers}];
-                geoObjects.forEach(obj => map.geoObjects.add(obj));
-              });
-            </script>
-          </body>
-        </html>
-      `;
-    };
-  }
+  };
 
   const submitEntry = () => {
     if (!settlement || !street || !house || !apartment || !meterNumber || (!inspector1 && !inspector2) || !workType || !workResult) {
@@ -248,7 +236,10 @@ export default function App() {
     setApartment('');
     setRoom('');
     setMeterNumber('');
-    setWorkTime('');
+    setWorkTime(() => {
+      const now = new Date();
+      return format(now, 'HH:mm');
+    });
     setWorkType('');
     setWorkResult('');
     setInspector1('');
@@ -403,7 +394,8 @@ export default function App() {
           <Text style={styles.title}>Энергоинспектор</Text>
         </View>
 
-        <Text style={styles.label}>🏙️ Населенный пункт:</Text>
+        <Text style={styles.label}>
+          <Icon name="city" size={18} /> Населенный пункт:</Text>
         <TextInput
           style={styles.input}
           value={settlement}
@@ -412,7 +404,8 @@ export default function App() {
           placeholderTextColor={colors.text}
         />
 
-        <Text style={styles.label}>🏘️ Улица:</Text>
+        <Text style={styles.label}>
+          <Icon name="home-city" size={18} /> Улица:</Text>
         <TextInput
           style={styles.input}
           value={street}
@@ -421,7 +414,8 @@ export default function App() {
           placeholderTextColor={colors.text}
         />
 
-        <Text style={styles.label}>🏠 Дом:</Text>
+        <Text style={styles.label}>
+          <Icon name="home-outline" size={18} /> Дом:</Text>
         <TextInput
           style={styles.input}
           value={house}
@@ -431,7 +425,8 @@ export default function App() {
           keyboardType="numeric"
         />
 
-        <Text style={styles.label}>🏢 Квартира:</Text>
+        <Text style={styles.label}>
+         <Icon name="office-building" size={18} /> Квартира:</Text>
         <TextInput
           style={styles.input}
           value={apartment}
@@ -441,7 +436,8 @@ export default function App() {
           keyboardType="numeric"
         />
 
-        <Text style={styles.label}>🚪 Комната:</Text>
+        <Text style={styles.label}>
+        <Icon name="door" size={18} /> Комната:</Text>
         <TextInput
           style={styles.input}
           value={room}
@@ -451,7 +447,8 @@ export default function App() {
           keyboardType="numeric"
         />
 
-        <Text style={styles.label}>🔢 Тип и номер прибора учета:</Text>
+        <Text style={styles.label}>
+        <Icon name="counter" size={18} /> Тип и номер прибора учета:</Text>
         <TextInput
           style={styles.input}
           value={meterNumber}
@@ -460,7 +457,8 @@ export default function App() {
           placeholderTextColor={colors.text}
         />
 
-        <Text style={styles.label}>📅 Дата заявки:</Text>
+        <Text style={styles.label}>
+        <Icon name="calendar" size={18} /> Дата заявки:</Text>
         <TextInput
           style={styles.input}
           value={workDate}
@@ -469,7 +467,8 @@ export default function App() {
           placeholderTextColor={colors.text}
         />
 
-        <Text style={styles.label}>⏱️ Время работы:</Text>
+        <Text style={styles.label}>
+        <Icon name="clock-outline" size={18} /> Время работы:</Text>
         <TextInput
           style={styles.input}
           value={workTime}
@@ -479,7 +478,8 @@ export default function App() {
         />
 
         
-        <Text style={[styles.label, { color: colors.text }]}>⚙️ Вид работы:</Text>
+        <Text style={[styles.label, { color: colors.text }]}>
+        <Icon name="cog-outline" size={18} /> Вид работы:</Text>
           <Menu
             visible={visibleWorkTypeMenu}
             onDismiss={() => setVisibleWorkTypeMenu(false)}
@@ -514,7 +514,8 @@ export default function App() {
             ))}
           </Menu>
 
-          <Text style={[styles.label, { color: colors.text }]}>✅ Результат работы:</Text>
+          <Text style={[styles.label, { color: colors.text }]}>
+          <Icon name="check-circle-outline" size={18} /> Результат работы:</Text>
           <Menu
             visible={visibleWorkResultMenu}
             onDismiss={() => setVisibleWorkResultMenu(false)}
@@ -548,7 +549,8 @@ export default function App() {
             ))}
           </Menu>
 
-          <Text style={[styles.label, { color: colors.text }]}>👤 ФИО инспектора 1:</Text>
+          <Text style={[styles.label, { color: colors.text }]}>
+          <Icon name="account-outline" size={18} /> ФИО инспектора 1:</Text>
             <Menu
               visible={menuVisible}
               onDismiss={() => setMenuVisible(false)}
@@ -557,7 +559,7 @@ export default function App() {
                   mode="text"
                   contentStyle={{
                     justifyContent: 'flex-start',
-                    paddingLeft: 0 
+                    paddingLeft: 0,
                   }}
                   onPress={() => setMenuVisible(true)}
                   style={[styles.menuButton, { backgroundColor: colors.primary }]}
@@ -567,37 +569,58 @@ export default function App() {
                 </PaperButton>
               }
             >
-              {inspectors.map((inspector) => (
-                <Menu.Item
-                  key={inspector.id}
-                  title={inspector.name}
-                  onPress={() => {
-                    setInspector1(inspector.name);
-                    setMenuVisible(false);
-                  }}
-                />
-              ))}
+              {inspectors
+                .filter((i) => i.name !== inspector2)
+                .map((inspector) => (
+                  <Menu.Item
+                    key={inspector.id}
+                    title={inspector.name}
+                    onPress={() => {
+                      setInspector1(inspector.name);
+                      setMenuVisible(false);
+                    }}
+                  />
+                ))}
             </Menu>
 
-            {/* <TouchableOpacity onPress={async () => {
-              const data = await dbOps.getInspectors();
-              setInspectors(data);
-              setInspectorsList(data);
-            }} style={styles.button}>
-              <Text style={styles.buttonText}>🔄 Обновить инспекторов</Text>
-            </TouchableOpacity> */}
+            <Text style={[styles.label, { color: colors.text }]}>
+            <Icon name="account-outline" size={18} /> ФИО инспектора 2:</Text>
+            <Menu
+              visible={menuVisible2}
+              onDismiss={() => setMenuVisible2(false)}
+              anchor={
+                <PaperButton
+                  mode="text"
+                  contentStyle={{
+                    justifyContent: 'flex-start',
+                    paddingLeft: 0,
+                  }}
+                  onPress={() => setMenuVisible2(true)}
+                  style={[styles.menuButton, { backgroundColor: colors.primary }]}
+                  labelStyle={[styles.menuButtonText, { color: colors.background }]}
+                >
+                  {inspector2 || 'Выберите инспектора'}
+                </PaperButton>
+              }
+            >
+              {inspectors
+                .filter((i) => i.name !== inspector1) // исключаем уже выбранного
+                .map((inspector) => (
+                  <Menu.Item
+                    key={inspector.id}
+                    title={inspector.name}
+                    onPress={() => {
+                      setInspector2(inspector.name);
+                      setMenuVisible2(false);
+                    }}
+                  />
+                ))}
+            </Menu>
 
-        <Text style={styles.label}>👤 ФИО инспектора 2:</Text>
-        <TextInput
-          style={styles.input}
-          value={inspector2}
-          onChangeText={setInspector2}
-          placeholder="Петров П.П."
-          placeholderTextColor={colors.text}
-        />
 
         <TouchableOpacity onPress={pickImage} style={styles.button}>
-          <Text style={styles.buttonText}>📸 Сделать фото</Text>
+          <Text style={styles.buttonText}>
+          <Icon name="camera" size={18} /> Сделать фото</Text>
         </TouchableOpacity>
 
         <View style={styles.imageContainer}>
@@ -624,11 +647,13 @@ export default function App() {
         </View>
 
         <TouchableOpacity onPress={submitEntry} style={styles.button}>
-          <Text style={styles.buttonText}>💾 Сохранить</Text>
+          <Text style={styles.buttonText}>
+          <Icon name="content-save" size={18} /> Сохранить</Text>
         </TouchableOpacity>
 
         <TouchableOpacity onPress={generateXLSXReport} style={styles.button}>
-          <Text style={styles.buttonText}>📊 Скачать отчет</Text>
+          <Text style={styles.buttonText}>
+          <Icon name="chart-bar" size={18} /> Скачать отчет</Text>
         </TouchableOpacity>
 
       </ScrollView>
@@ -636,3 +661,4 @@ export default function App() {
     </PaperProvider>
   );
 }
+

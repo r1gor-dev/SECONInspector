@@ -21,12 +21,16 @@
         "backgroundColor": "#ffffff"
       },
       "permissions": [
-        "android.permission.CAMERA",
-        "android.permission.READ_EXTERNAL_STORAGE",
-        "android.permission.WRITE_EXTERNAL_STORAGE",
-        "android.permission.RECORD_AUDIO"
+        "CAMERA",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE",
+        "RECORD_AUDIO",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_MEDIA_LOCATION",
+        "FOREGROUND_SERVICE"
       ],
-      "package": "com.anonymous.SECONInspector"
+
+      "package": "com.tnsenergo.SECONInspector"
     },
     "web": {
       "bundler": "metro",
