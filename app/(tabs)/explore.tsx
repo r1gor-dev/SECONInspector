@@ -15,7 +15,7 @@ export default function ExploreScreen() {
       if (initialized && dbOps) {
         try {
           const data = await dbOps.getInspectors();
-          setInspectors(data || []); // Гарантируем, что data не будет null
+          setInspectors(data || []);
           setLoading(false);
         } catch (error) {
           console.error('Failed to load inspectors:', error);
@@ -42,8 +42,6 @@ export default function ExploreScreen() {
       setInspectors(updatedInspectors || []);
       Alert.alert('Успех', 'Инспектор добавлен');
       
-      // Здесь можно вызвать функцию обновления состояния в контексте или родительском компоненте
-      // Например, передать обновленный список в родительский компонент или контекст
     } catch (error) {
       console.error('Error adding inspector:', error);
       Alert.alert('Ошибка', 'Не удалось добавить инспектора');
@@ -91,6 +89,7 @@ export default function ExploreScreen() {
     },
     title: {
       fontSize: 20,
+      marginTop: 40,
       fontWeight: 'bold',
       marginBottom: 20,
       color: colors.text,

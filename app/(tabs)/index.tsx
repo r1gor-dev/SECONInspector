@@ -9,13 +9,13 @@ import { format } from 'date-fns';
 import { ru } from 'date-fns/locale';
 import * as Location from 'expo-location';
 import { Menu, Divider, Provider as PaperProvider, Button as PaperButton } from 'react-native-paper';  
-import SQLite from 'react-native-sqlite-storage';
-import { createDatabaseOperations } from '../../database/db';
 import { useDatabase } from '../../database/dbcontext';
 import { useFocusEffect } from '@react-navigation/native';
 
-
-
+// TODO: Детектор размытия фотки, разобраться с фотками (куда они сохраняются)
+// TODO: прикреплять фотографии в профиль к сотруднику вместе с датой и временем
+// TODO: Сделать презентацию
+// TODO: Значки для нижнего таба
 type Entry = {
   settlement: string;
   street: string;
@@ -491,13 +491,13 @@ export default function App() {
               ))}
             </Menu>
 
-            <TouchableOpacity onPress={async () => {
+            {/* <TouchableOpacity onPress={async () => {
               const data = await dbOps.getInspectors();
               setInspectors(data);
               setInspectorsList(data);
             }} style={styles.button}>
               <Text style={styles.buttonText}>🔄 Обновить инспекторов</Text>
-            </TouchableOpacity>
+            </TouchableOpacity> */}
 
         <Text style={styles.label}>👤 ФИО инспектора 2:</Text>
         <TextInput
