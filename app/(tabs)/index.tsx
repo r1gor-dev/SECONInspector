@@ -129,7 +129,7 @@ export default function App() {
         const timestamp = new Date();
         const formattedDate = format(timestamp, 'ddMMyyyy');
         const formattedTime = format(timestamp, 'HHmmss');
-
+      
         const addressParts = [
           settlement?.replace(/\s+/g, '_'),
           street?.replace(/\s+/g, '_'),
@@ -137,45 +137,33 @@ export default function App() {
           apartment ? `кв${apartment}` : '',
           room ? `ком${room}` : ''
         ].filter(Boolean);
-  
+      
         const baseFilename = addressParts.join('_');
-        
+      
         const isMeterPhoto = workResult.toLowerCase().includes('доступ') && 
                            !workResult.toLowerCase().includes('отсутствует');
         const photoType = isMeterPhoto ? 'прибор' : 'дверь';
-  
+      
         const newPhotoUris = await Promise.all(
           result.assets.map(async (asset, index) => {
             const photoNumber = (index + 1).toString().padStart(2, '0');
             const filename = `${baseFilename}_${photoType}_${formattedDate}_${formattedTime}_${photoNumber}.jpg`;
-            
             const newPath = `${FileSystem.documentDirectory}${filename}`;
+      
             await FileSystem.copyAsync({ from: asset.uri, to: newPath });
-  
+      
             if (Platform.OS === 'android') {
-
-              const newPath = `${FileSystem.documentDirectory}${filename}`;
-              await FileSystem.copyAsync({ from: asset.uri, to: newPath });
-            
               const assetInfo = await MediaLibrary.createAssetAsync(newPath);
-            
-
               await MediaLibrary.createAlbumAsync('ЭнергоИнспектор', assetInfo, false);
-              
+      
               const locationText = `Широта: ${location.coords.latitude}\nДолгота: ${location.coords.longitude}\nТочность: ${location.coords.accuracy}m`;
               await FileSystem.writeAsStringAsync(`${newPath}.txt`, locationText);
             }
-            
-            const assetInfo = await MediaLibrary.createAssetAsync(newPath);
-            await MediaLibrary.createAlbumAsync('ЭнергоИнспектор', assetInfo, false);
-  
-            const locationText = `Широта: ${location.coords.latitude}\nДолгота: ${location.coords.longitude}\nТочность: ${location.coords.accuracy}m`;
-            await FileSystem.writeAsStringAsync(`${newPath}.txt`, locationText);
-  
+      
             return newPath;
           })
         );
-  
+      
         setPhotoUris(prev => [...prev, ...newPhotoUris.filter(Boolean)]);
         
         Alert.alert(
@@ -233,6 +221,7 @@ export default function App() {
     setWorkResult('');
     setInspector1('');
     setInspector2('');
+    setNoAccessToMeter(!noAccessToMeter);
     setPhotoUris([]);
   };
 
