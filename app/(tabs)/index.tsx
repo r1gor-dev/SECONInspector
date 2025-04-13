@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useCallback  } from 'react';
-import { View, Modal, Text, TextInput, Button, ScrollView, Alert, Image, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, Modal, Text, TextInput, Button, ScrollView,
+   Alert, Image, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
-import { useTheme, useRoute } from '@react-navigation/native';
+import { useTheme } from '@react-navigation/native';
 import * as XLSX from 'xlsx';
 import { format } from 'date-fns';
 import { ru } from 'date-fns/locale';
@@ -11,6 +12,9 @@ import * as Location from 'expo-location';
 import { Menu, Divider, Provider as PaperProvider, Button as PaperButton } from 'react-native-paper';  
 import { useDatabase } from '../../database/dbcontext';
 import { useFocusEffect } from '@react-navigation/native';
+import { WebView } from 'react-native-webview';
+import * as ImageManipulator from 'expo-image-manipulator';
+import * as MediaLibrary from 'expo-media-library';
 
 // TODO: Детектор размытия фотки, разобраться с фотками (куда они сохраняются)
 // TODO: прикреплять фотографии в профиль к сотруднику вместе с датой и временем
@@ -34,9 +38,6 @@ type Entry = {
 };
 
 export default function App() {
-  type RouteParams = {
-    inspectorId: number;
-  };
   const { colors } = useTheme();
   const { dbOps, initialized } = useDatabase();
   const [settlement, setSettlement] = useState('');
@@ -59,8 +60,6 @@ export default function App() {
   const [inspector2, setInspector2] = useState('');
   const [photoUris, setPhotoUris] = useState<string[]>([]);
   const [entries, setEntries] = useState<Entry[]>([]);
-  const route = useRoute<RouteProp<Record<string, RouteParams>, string>>();
-  const inspectorId = route.params?.inspectorId ?? null;
   const workTypes = ['возобновление', 'отключение', 'ограничение'];
 
   const workResultsMap: { [key: string]: string[] } = {
@@ -125,10 +124,6 @@ export default function App() {
           const locationInfo = `lat=${location.coords.latitude},lon=${location.coords.longitude}`;
           await FileSystem.writeAsStringAsync(newPath + '.txt', locationInfo);
 
-          if (dbOps && inspectorId) {
-            await dbOps.addPhoto(inspectorId, newPath, fileName);
-          }
-
           return newPath;
         })
       );
@@ -137,6 +132,85 @@ export default function App() {
       setPhotoUris([...photoUris, ...filteredUris]);
     }
   };
+
+  const ExploreScreen = () => {
+    const [geoImages, setGeoImages] = useState<{ uri: string; latitude: number; longitude: number }[]>([]);
+    const [loading, setLoading] = useState(true);
+  
+    useEffect(() => {
+      const loadGeoTaggedImages = async () => {
+        const { granted } = await MediaLibrary.requestPermissionsAsync();
+        if (!granted) return;
+  
+        const photos = await MediaLibrary.getAssetsAsync({ mediaType: 'photo', first: 100 });
+  
+        const imageWithLocation = await Promise.all(
+          photos.assets.map(async (photo) => {
+            try {
+              const info = await MediaLibrary.getAssetInfoAsync(photo);
+              if (info?.location) {
+                return {
+                  uri: info.uri,
+                  latitude: info.location.latitude,
+                  longitude: info.location.longitude,
+                };
+              }
+            } catch (e) {
+              console.warn(`Error reading location from image ${photo.filename}`, e);
+            }
+            return null;
+          })
+        );
+  
+        setGeoImages(imageWithLocation.filter(Boolean) as any);
+        setLoading(false);
+      };
+  
+      loadGeoTaggedImages();
+    }, []);
+  
+    if (loading) {
+      return (
+        <View style={styles.centered}>
+          <ActivityIndicator size="large" />
+          <Text>Загрузка фотографий с координатами...</Text>
+        </View>
+      );
+    }
+
+    const generateYandexMapHTML = () => {
+      const markers = geoImages
+        .map(
+          (img, i) => `
+          new ymaps.Placemark([${img.latitude}, ${img.longitude}], {
+            balloonContent: '<img src="${img.uri}" width="150" height="150" />'
+          })`
+        )
+        .join(',\n');
+  
+      return `
+        <html>
+          <head>
+            <script src="https://api-maps.yandex.ru/2.1/?lang=ru_RU" type="text/javascript"></script>
+          </head>
+          <body>
+            <div id="map" style="width:100%; height:100%;"></div>
+            <script>
+              ymaps.ready(function () {
+                var map = new ymaps.Map("map", {
+                  center: [55.751574, 37.573856],
+                  zoom: 10
+                });
+  
+                var geoObjects = [${markers}];
+                geoObjects.forEach(obj => map.geoObjects.add(obj));
+              });
+            </script>
+          </body>
+        </html>
+      `;
+    };
+  }
 
   const submitEntry = () => {
     if (!settlement || !street || !house || !apartment || !meterNumber || (!inspector1 && !inspector2) || !workType || !workResult) {
@@ -246,6 +320,11 @@ export default function App() {
     container: {
       padding: 20,
       paddingBottom: 40,
+    },
+    centered: {
+      flex: 1,
+      justifyContent: 'center',
+      alignItems: 'center',
     },
     title: {
       fontSize: 24,
@@ -520,11 +599,7 @@ export default function App() {
         <TouchableOpacity onPress={pickImage} style={styles.button}>
           <Text style={styles.buttonText}>📸 Сделать фото</Text>
         </TouchableOpacity>
-        <Stack.Screen
-          name="PhotoScreen"
-          component={PhotoScreen} // тот самый index.tsx
-          options={({ route }) => ({ title: `Фото: ${route.params.name}` })}
-        />
+
         <View style={styles.imageContainer}>
           {photoUris.map((uri, index) => (
             <View key={index} style={{ position: 'relative', margin: 10 }}>
