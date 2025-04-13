@@ -16,6 +16,8 @@ import { WebView } from 'react-native-webview';
 import * as ImageManipulator from 'expo-image-manipulator';
 import * as MediaLibrary from 'expo-media-library';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import { Checkbox } from 'react-native-paper';
+
 
 type Entry = {
   settlement: string;
@@ -66,6 +68,8 @@ export default function App() {
   const [photoUris, setPhotoUris] = useState<string[]>([]);
   const [entries, setEntries] = useState<Entry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [noAccessToMeter, setNoAccessToMeter] = useState(false);
+
 
   const workTypes = ['возобновление', 'отключение', 'ограничение'];
 
@@ -92,7 +96,6 @@ export default function App() {
   const [visibleWorkResultMenu, setVisibleWorkResultMenu] = useState(false);
 
   const pickImage = async () => {
-    // Запрашиваем необходимые разрешения
     const [cameraPermission, locationPermission, mediaPermission] = await Promise.all([
       ImagePicker.requestCameraPermissionsAsync(),
       Location.requestForegroundPermissionsAsync(),
@@ -105,12 +108,10 @@ export default function App() {
     }
   
     try {
-      // Получаем текущее местоположение
       const location = await Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.BestForNavigation
       });
   
-      // Делаем фото
       const result = await ImagePicker.launchCameraAsync({
         quality: 0.9,
         allowsEditing: false,
@@ -128,8 +129,7 @@ export default function App() {
         const timestamp = new Date();
         const formattedDate = format(timestamp, 'ddMMyyyy');
         const formattedTime = format(timestamp, 'HHmmss');
-        
-        // Формируем базовое имя файла
+
         const addressParts = [
           settlement?.replace(/\s+/g, '_'),
           street?.replace(/\s+/g, '_'),
@@ -140,46 +140,35 @@ export default function App() {
   
         const baseFilename = addressParts.join('_');
         
-        // Определяем тип фото (прибор или дверь)
         const isMeterPhoto = workResult.toLowerCase().includes('доступ') && 
                            !workResult.toLowerCase().includes('отсутствует');
         const photoType = isMeterPhoto ? 'прибор' : 'дверь';
   
-        // Обрабатываем все сделанные фото
         const newPhotoUris = await Promise.all(
           result.assets.map(async (asset, index) => {
             const photoNumber = (index + 1).toString().padStart(2, '0');
             const filename = `${baseFilename}_${photoType}_${formattedDate}_${formattedTime}_${photoNumber}.jpg`;
             
-            // Сохраняем в приватное хранилище приложения
             const newPath = `${FileSystem.documentDirectory}${filename}`;
             await FileSystem.copyAsync({ from: asset.uri, to: newPath });
   
-            // Добавляем геоданные в EXIF (для Android)
             if (Platform.OS === 'android') {
-              // Здесь не нужно использовать updateAssetLocationAsync, так как это не поддерживается.
-              // Просто сохраняем фото с EXIF-метаданными, полученными при съемке.
-              
+
               const newPath = `${FileSystem.documentDirectory}${filename}`;
               await FileSystem.copyAsync({ from: asset.uri, to: newPath });
             
-              // Добавляем фото в медиабиблиотеку
               const assetInfo = await MediaLibrary.createAssetAsync(newPath);
             
-              // Сохраняем фото в новый альбом
+
               await MediaLibrary.createAlbumAsync('ЭнергоИнспектор', assetInfo, false);
               
-              // Дополнительно сохраняем координаты в текстовый файл
               const locationText = `Широта: ${location.coords.latitude}\nДолгота: ${location.coords.longitude}\nТочность: ${location.coords.accuracy}m`;
               await FileSystem.writeAsStringAsync(`${newPath}.txt`, locationText);
             }
             
-  
-            // Сохраняем в галерею с геотегом
             const assetInfo = await MediaLibrary.createAssetAsync(newPath);
             await MediaLibrary.createAlbumAsync('ЭнергоИнспектор', assetInfo, false);
   
-            // Дополнительно сохраняем координаты в текстовый файл
             const locationText = `Широта: ${location.coords.latitude}\nДолгота: ${location.coords.longitude}\nТочность: ${location.coords.accuracy}m`;
             await FileSystem.writeAsStringAsync(`${newPath}.txt`, locationText);
   
@@ -455,7 +444,23 @@ export default function App() {
           onChangeText={setMeterNumber}
           placeholder="Например: СЕ 102  №: 12501176862604"
           placeholderTextColor={colors.text}
+          editable={!noAccessToMeter}
         />
+
+        <View style={{ flexDirection: 'row', alignItems: 'center', marginVertical: 4 }}>
+            <Checkbox
+              status={noAccessToMeter ? 'checked' : 'unchecked'}
+              onPress={() => {
+                setNoAccessToMeter(!noAccessToMeter);
+                if (!noAccessToMeter) {
+                  setMeterNumber('доступ отсутствует');
+                } else {
+                  setMeterNumber('');
+                }
+              }}
+            />
+            <Text style={{ color: colors.text }}>Отсутствует доступ к счётчику?</Text>
+          </View>
 
         <Text style={styles.label}>
         <Icon name="calendar" size={18} /> Дата заявки:</Text>
@@ -492,7 +497,7 @@ export default function App() {
                 }}
                 onPress={() => setVisibleWorkTypeMenu(true)}
                 style={[styles.menuButton, { backgroundColor: colors.primary }]}
-                labelStyle={[styles.menuButtonText, { color: colors.background }]} // Цвет текста белый
+                labelStyle={[styles.menuButtonText, { color: colors.background }]} 
               >
                 {workType || 'Выберите вид работы'}
               </PaperButton>
@@ -528,7 +533,7 @@ export default function App() {
                 }}
                 onPress={() => setVisibleWorkResultMenu(true)}
                 style={[styles.menuButton, { backgroundColor: colors.primary }]}
-                labelStyle={[styles.menuButtonText, { color: colors.background }]} // Цвет текста белый
+                labelStyle={[styles.menuButtonText, { color: colors.background }]}
               >
                 {workResult || 'Выберите результат'}
               </PaperButton>
@@ -604,7 +609,7 @@ export default function App() {
               }
             >
               {inspectors
-                .filter((i) => i.name !== inspector1) // исключаем уже выбранного
+                .filter((i) => i.name !== inspector1)
                 .map((inspector) => (
                   <Menu.Item
                     key={inspector.id}
